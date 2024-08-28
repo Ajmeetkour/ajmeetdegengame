@@ -25,92 +25,97 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "hardhat/console.sol";
 
-contract DegenToken is ERC20, Ownable, ERC20Burnable {
+contract DegenGamingToken is ERC20, Ownable, ERC20Burnable {
 
-    struct Loyalty {
-        uint256 lastUpdated;
-        uint256 loyaltyPoints;
+    event RedeemGameTokens(address indexed redeemer, uint256 amount, string item);
+
+    struct ninjafruititems {
+        string fruitname;
+        uint256 diamonds;
+        uint256 availablefruit;
     }
 
-    mapping(address => Loyalty) private _loyaltyPoints;
-    uint256 public constant LOYALTY_RATE = 1; // 1 token per day per token held
+    ninjafruititems[] public fruitItemCategory;
 
-    event TokensMinted(address indexed to, uint256 amount);
-    event TokensTransferred(address indexed from, address indexed to, uint256 amount);
-    event TokensRedeemed(address indexed from, string item, uint256 amount);
-    event TokensBurned(address indexed from, uint256 amount);
-    event LoyaltyPointsUpdated(address indexed user, uint256 loyaltyPoints);
+    mapping(address => mapping(uint256 => uint256)) public playerfruitslist;
 
-    // Mapping to store item names and their respective token costs
-    mapping(string => uint256) public itemCosts;
+    mapping(uint256 => uint256) public availableFruitMapping;
+    
+     function _setFruitItems() internal {
+        fruitItemCategory.push(ninjafruititems("1. ninja Apple", 300, 1000));
+        fruitItemCategory.push(ninjafruititems("2. ninja Banana", 200, 400));
+        fruitItemCategory.push(ninjafruititems("3. ninja grapes", 480, 220));
+        fruitItemCategory.push(ninjafruititems("4. ninja orange", 720, 370));
+        fruitItemCategory.push(ninjafruititems("5. ninja pineapple", 280, 180));
+        fruitItemCategory.push(ninjafruititems("6. ninja mango", 540, 910));
+        fruitItemCategory.push(ninjafruititems("7. ninja guvava", 250, 350));
+        fruitItemCategory.push(ninjafruititems("8. ninja dragonfruit", 300, 640));
 
-    constructor() ERC20("Degen", "DGN") Ownable(msg.sender) {}
-
-    function mint(address to, uint256 amount) external onlyOwner {
-        _mint(to, amount);
-        emit TokensMinted(to, amount);
+        for (uint256 item = 0; item < fruitItemCategory.length; item++) {
+            availableFruitMapping[item] = fruitItemCategory[item].availablefruit;
+        }
     }
 
-    function transferTokens(address recipient, uint256 amount) external {
-        _updateLoyaltyPoints(msg.sender);
-        _updateLoyaltyPoints(recipient);
-        _transfer(_msgSender(), recipient, amount);
-        emit TokensTransferred(msg.sender, recipient, amount);
+    constructor() ERC20("Degen", "DGN") Ownable(msg.sender) {
+        _setFruitItems();
     }
 
-    function redeemTokens(string memory item) external {
-        uint256 itemCost = itemCosts[item];
-        require(itemCost > 0, "Item does not exist.");
-        require(balanceOf(msg.sender) >= itemCost, "Insufficient balance to redeem tokens for this item.");
-        _burn(msg.sender, itemCost);
-        emit TokensRedeemed(msg.sender, item, itemCost);
+    function mint(address to, uint256 diamond_value) public onlyOwner {
+        _mint(to, diamond_value);
     }
 
-    function checkBalance() external view returns (uint256) {
+    function transferTokens(address _receiver, uint256 _diamondsToTransfer) external {
+        require(balanceOf(msg.sender) >=  _diamondsToTransfer, "You are not having enough Diamonds to transfer to someone");
+        transfer(_receiver,  _diamondsToTransfer);
+    }
+
+    function burnTokens(uint256 _diamondsToBurn) external {
+        require(balanceOf(msg.sender) >= _diamondsToBurn, "You do not have enough Diamonds to burn");
+        burn(_diamondsToBurn);
+    }
+
+    function getBalance() external view returns (uint256) {
         return balanceOf(msg.sender);
     }
 
-    function burnTokens(uint256 amount) external {
-        require(balanceOf(msg.sender) >= amount, "Insufficient balance to burn tokens.");
-        _burn(msg.sender, amount);
-        emit TokensBurned(msg.sender, amount);
+
+    function redeemfruitItems(uint256 _id) external {
+        require( _id <= fruitItemCategory.length && _id > 0, "Fruit item not in list, Invalid id of fruit item");
+
+        ninjafruititems storage Ninjafruititems = fruitItemCategory[_id - 1];
+
+        require(balanceOf(msg.sender) >= Ninjafruititems.diamonds, "You do not have enough Diamonds to get this item! try another fruit item.");
+
+        require(availableFruitMapping[_id - 1] > 0, "Item is unavailable");
+        
+        _burn(msg.sender, Ninjafruititems.diamonds);
+        emit RedeemGameTokens(msg.sender, Ninjafruititems.diamonds, Ninjafruititems.fruitname);
+
+        availableFruitMapping[_id - 1]--;
+
+        playerfruitslist[msg.sender][_id - 1]++;
     }
 
-    function checkLoyaltyPoints() external view returns (uint256) {
-        return _loyaltyPoints[msg.sender].loyaltyPoints;
+     function getPlayerFruitItems(address _user) external view returns (uint256[] memory) {
+        uint256[] memory playerownedfruits = new uint256[](fruitItemCategory.length);
+        for (uint256 item = 0; item < fruitItemCategory.length; item++) {
+            playerownedfruits[item] = playerfruitslist[_user][item];
+        }
+        return playerownedfruits;
     }
 
-    function claimLoyaltyTokens() external {
-        _updateLoyaltyPoints(msg.sender);
-        uint256 loyaltyPoints = _loyaltyPoints[msg.sender].loyaltyPoints;
-        require(loyaltyPoints > 0, "No loyalty points to claim.");
-        _loyaltyPoints[msg.sender].loyaltyPoints = 0;
-        _mint(msg.sender, loyaltyPoints);
-        emit LoyaltyPointsUpdated(msg.sender, 0);
+    function fruitStore() external view returns (ninjafruititems[] memory) {
+        return fruitItemCategory;
     }
 
-    function _updateLoyaltyPoints(address user) internal {
-        Loyalty storage loyalty = _loyaltyPoints[user];
-        uint256 daysHeld = (block.timestamp - loyalty.lastUpdated) / 1 days;
-        uint256 newPoints = daysHeld * balanceOf(user) * LOYALTY_RATE;
-        loyalty.loyaltyPoints += newPoints;
-        loyalty.lastUpdated = block.timestamp;
-        emit LoyaltyPointsUpdated(user, loyalty.loyaltyPoints);
-    }
-
-    // Function to set item costs, only owner can set this
-    function setItemCost(string memory item, uint256 cost) external onlyOwner {
-        itemCosts[item] = cost;
-    }
 }
+To compile the code, click on the "Solidity Compiler" tab in the left-hand sidebar. Make sure the "Compiler" option is set to "0.8.20" (or another compatible version), and then click on the "Compile TokenDegenGaming.sol" button.
 
+Once the code is compiled, you can deploy the contract by clicking on the "Deploy & Run Transactions" tab in the left-hand sidebar. Select the "DegenGamingToken" contract from the dropdown menu, and then click on the "Deploy" button.
 
-To compile the code, click on the "Solidity Compiler" tab in the left-hand sidebar. Make sure the "Compiler" option is set to "0.8.20" (or another compatible version), and then click on the "Compile DegenGame.sol" button.
-
-Once the code is compiled, you can deploy the contract by clicking on the "Deploy & Run Transactions" tab in the left-hand sidebar. Select the "DegenToken" contract from the dropdown menu, and then click on the "Deploy" button.
-
-Once the contract is deployed, you can interact with it by calling all the functions. Click on the "DegenToken" contract in the left-hand sidebar, and then click on all the functions one by one. Finally, click on the "transact" button to execute the functions.
+Once the contract is deployed, you can interact with it by calling all the functions. Click on the "DegenGamingToken" contract in the left-hand sidebar, and then click on all the functions one by one. Finally, click on the "transact" button to execute the functions.
 
 ## Authors
 Ajmeet kour @Ajmeetkour
